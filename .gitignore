@@ -1,3 +1,5 @@
 *.o
 vecx
 tags
+
+.DS_Store
