@@ -9,20 +9,12 @@
 
 #include <Arduino.h>
 
-#ifdef use_lib_vectortiny
  static int screenx;
  static int screeny;
  static int scl_factor;  
  static int offx;
  static int offy; 
-#else
- static long screenx;
- static long screeny;
- static long scl_factor; 
- //static float scl_factor_float;
- static long offx;
- static long offy; 
-#endif 
+
 
 extern uint8_t soundBuffer[SOUND_SAMPLE];
 
