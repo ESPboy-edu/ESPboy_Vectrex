@@ -15,8 +15,13 @@ UP+DOWN+LEFT+RIGHT to switch ON/OFF sounds (it plays faster without sounds)
 #include "lib/ESPboyInit.cpp"
 #include "lib/ESPboyMenuGUI.h"
 #include "lib/ESPboyMenuGUI.cpp"
+//#include "lib/ESPboyTerminalGUI.h"
+//#include "lib/ESPboyTerminalGUI.cpp"
+//#include "lib/ESPboyOTA2.h"
+//#include "lib/ESPboyOTA2.cpp"
 #include "gbConfig.h"
 #include <LittleFS.h>
+#include "nbSPI.h"
 
 #define MAX_FILE_SIZE 10000
 #define swp(a, b) {(a)^=(b); (b)^=(a); (a)^=(b);}
@@ -24,11 +29,13 @@ UP+DOWN+LEFT+RIGHT to switch ON/OFF sounds (it plays faster without sounds)
 
 ESPboyInit myESPboy;
 ESPboyMenuGUI menuGUI(&myESPboy);
+//ESPboyTerminalGUI *terminalGUIobj = NULL;
+//ESPboyOTA2 *OTA2obj = NULL;
 
 extern uint8_t *soundBuffer;
 
 uint8_t *screenBuffer;
-uint16_t *lineBuf;
+uint16_t *lineBuf, *lineBuf1, *lineBuf2;
 char *fileNamesBuf;
 char **fileNamesList;
 uint8_t *fileNum;
@@ -52,19 +59,23 @@ void screenDrawBuffer() {
 #endif
   
   addrBuffer=0;
-  for (uint8_t b=0; b<16; b++){
+  for (uint8_t b=0; b<128/4; b++){
     positionBuffLine = 0;
-    for (uint8_t i=0; i<128; i++){
+    if (lineBuf == lineBuf1) lineBuf=lineBuf2;
+    else lineBuf=lineBuf1;
+    for (uint8_t i=0; i<4*128/8; i++){
         mask = 128;
         getByte = screenBuffer[addrBuffer++];
         for (uint8_t m=0; m<8; m++){
-          if (getByte & mask) lineBuf[positionBuffLine] = TFT_YELLOW;
+          if (getByte & mask) lineBuf[positionBuffLine] = 0xE0FF;
           else lineBuf[positionBuffLine] = 0;
           positionBuffLine++;
           mask = mask >> 1;
         }
       } 
-    myESPboy.tft.pushColors(lineBuf, 128*8);
+    //myESPboy.tft.pushColors(lineBuf, 128*4);
+    while(nbSPI_isBusy());
+    nbSPI_writeBytes((uint8_t*)lineBuf, 128*8);
   }
 
 #ifdef SERIAL_DEBUG
@@ -122,7 +133,17 @@ void setup(){
   Serial.begin(57600);
   Serial.println();
 #endif
+  
   myESPboy.begin("ESPboy Vectrex");
+
+  /*
+    //Check OTA2
+  if (myESPboy.getKeys()&PAD_ACT || myESPboy.getKeys()&PAD_ESC) { 
+     terminalGUIobj = new ESPboyTerminalGUI(&myESPboy.tft, &myESPboy.mcp);
+     OTA2obj = new ESPboyOTA2(terminalGUIobj);
+  }
+  */
+  
   screenBuffer = (uint8_t *)malloc(2048);
   memset (screenBuffer, 0 , 2048);
 
@@ -131,7 +152,8 @@ void setup(){
   Serial.println(ESP.getFreeHeap());
 #endif
 
-  lineBuf = (uint16_t *)malloc (128*8*2);
+  lineBuf1 = (uint16_t *)malloc (128*4*2);
+  lineBuf2 = (uint16_t *)malloc (128*4*2);
 
 #ifdef SERIAL_DEBUG
   Serial.print(F("Line buf alloc  "));

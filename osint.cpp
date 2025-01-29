@@ -15,7 +15,6 @@
  static int offx;
  static int offy; 
 
-
 extern uint8_t soundBuffer[SOUND_SAMPLE];
 
 void osint_render(){
