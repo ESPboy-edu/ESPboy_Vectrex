@@ -23,7 +23,7 @@ UP+DOWN+LEFT+RIGHT to switch ON/OFF sounds (it plays faster without sounds)
 #include <LittleFS.h>
 #include "nbSPI.h"
 
-#define MAX_FILE_SIZE 10000
+#define MAX_FILE_SIZE 9000
 #define swp(a, b) {(a)^=(b); (b)^=(a); (a)^=(b);}
 
 
@@ -49,7 +49,7 @@ unsigned char getKeysLocal() {
 }
 
 
-void screenDrawBuffer() { 
+void ICACHE_RAM_ATTR screenDrawBuffer() { 
   static uint16_t positionBuffLine, addrBuffer;
   static uint8_t mask, getByte; 
 
@@ -67,7 +67,7 @@ void screenDrawBuffer() {
         mask = 128;
         getByte = screenBuffer[addrBuffer++];
         for (uint8_t m=0; m<8; m++){
-          if (getByte & mask) lineBuf[positionBuffLine] = 0xE0FF;
+          if (getByte & mask) lineBuf[positionBuffLine] = FORE_GROUND_COLOR;
           else lineBuf[positionBuffLine] = 0;
           positionBuffLine++;
           mask = mask >> 1;
@@ -90,7 +90,7 @@ void screenClearBuffer() {
 }
 
 
-void screenPixel(int16_t x, int16_t y) {
+void ICACHE_RAM_ATTR screenPixel(int16_t x, int16_t y) {
   screenBuffer[(x + y*128)>>3] |=  (0x80 >> (x & 0x7));
 }
 
@@ -167,8 +167,10 @@ void setup(){
   Serial.println(ESP.getFreeHeap());
 #endif
 
-
+#ifdef SOUND_ENABLE
   soundBuffer = (uint8_t *)malloc (SOUND_SAMPLE+1);
+#endif
+
 #ifdef SERIAL_DEBUG
   Serial.print(F("Sound buf alloc  "));
   Serial.println(ESP.getFreeHeap());
