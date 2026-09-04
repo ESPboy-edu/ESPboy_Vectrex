@@ -1,9 +1,9 @@
 /*
 Port of jhawthorn vecx (https://github.com/jhawthorn/vecx)
 to ESPboy www.espboy.com - RomanS 2025 espboy.edu@gmail.com
-upload *.vec files to LittleFS ESP8266 internal flash drive (if no, then will be only one BIOS game available)
+upload *.vec files to LittleFS ESP8266 internal flash drive
 LFT+RGT keys to back to menu
-UP+DOWN+LEFT+RIGHT to switch ON/OFF sounds (it plays faster without sounds)
+UP+DOWN+LEFT+RIGHT to switch ON/OFF sounds
 */
 
 #include <sigma_delta.h>
@@ -15,22 +15,14 @@ UP+DOWN+LEFT+RIGHT to switch ON/OFF sounds (it plays faster without sounds)
 #include "lib/ESPboyInit.cpp"
 #include "lib/ESPboyMenuGUI.h"
 #include "lib/ESPboyMenuGUI.cpp"
-//#include "lib/ESPboyTerminalGUI.h"
-//#include "lib/ESPboyTerminalGUI.cpp"
-//#include "lib/ESPboyOTA2.h"
-//#include "lib/ESPboyOTA2.cpp"
 #include "gbConfig.h"
 #include <LittleFS.h>
 #include "nbSPI.h"
 
-#define MAX_FILE_SIZE 9000
 #define swp(a, b) {(a)^=(b); (b)^=(a); (a)^=(b);}
-
 
 ESPboyInit myESPboy;
 ESPboyMenuGUI menuGUI(&myESPboy);
-//ESPboyTerminalGUI *terminalGUIobj = NULL;
-//ESPboyOTA2 *OTA2obj = NULL;
 
 extern uint8_t *soundBuffer;
 
@@ -43,59 +35,66 @@ uint8_t *allocatedRom;
 bool flagLoadedRom;
 bool soundOnFlag = true;
 
-
 unsigned char getKeysLocal() {
   return myESPboy.getKeys();
 }
 
+#define FG FORE_GROUND_COLOR
+// Таблица конвертации 4 бит (1 полубайт) в два 32-битных слова (4 пикселя)
+static const uint32_t colorLUT[16][2] = {
+    {0, 0}, {0, FG << 16}, {0, FG}, {0, (FG << 16) | FG},
+    {FG << 16, 0}, {FG << 16, FG << 16}, {FG << 16, FG}, {FG << 16, (FG << 16) | FG},
+    {FG, 0}, {FG, FG << 16}, {FG, FG}, {FG, (FG << 16) | FG},
+    {(FG << 16) | FG, 0}, {(FG << 16) | FG, FG << 16}, {(FG << 16) | FG, FG}, {(FG << 16) | FG, (FG << 16) | FG}
+};
 
 void ICACHE_RAM_ATTR screenDrawBuffer() { 
-  static uint16_t positionBuffLine, addrBuffer;
-  static uint8_t mask, getByte; 
+  static uint16_t addrBuffer;
+  uint32_t *lineBuf32;
 
-#ifdef SERIAL_DEBUG
-  static uint32_t timestmp, cnt=0;
-  timestmp=micros();
-#endif
-  
   addrBuffer=0;
   for (uint8_t b=0; b<128/4; b++){
-    positionBuffLine = 0;
-    if (lineBuf == lineBuf1) lineBuf=lineBuf2;
-    else lineBuf=lineBuf1;
+    // Двойная буферизация
+    lineBuf = (lineBuf == lineBuf1) ? lineBuf2 : lineBuf1;
+    lineBuf32 = (uint32_t*)lineBuf;
+    
+    // Развернутый цикл без ветвлений
     for (uint8_t i=0; i<4*128/8; i++){
-        mask = 128;
-        getByte = screenBuffer[addrBuffer++];
-        for (uint8_t m=0; m<8; m++){
-          if (getByte & mask) lineBuf[positionBuffLine] = FORE_GROUND_COLOR;
-          else lineBuf[positionBuffLine] = 0;
-          positionBuffLine++;
-          mask = mask >> 1;
-        }
-      } 
-    //myESPboy.tft.pushColors(lineBuf, 128*4);
+        uint8_t getByte = screenBuffer[addrBuffer++];
+        *(lineBuf32++) = colorLUT[getByte >> 4][0];
+        *(lineBuf32++) = colorLUT[getByte >> 4][1];
+        *(lineBuf32++) = colorLUT[getByte & 0x0F][0];
+        *(lineBuf32++) = colorLUT[getByte & 0x0F][1];
+    } 
+    
     while(nbSPI_isBusy());
     nbSPI_writeBytes((uint8_t*)lineBuf, 128*8);
   }
-
-#ifdef SERIAL_DEBUG
- if(cnt++>40) {cnt=0; Serial.print(F("PUSH DISPLAY MILLIS: "));  Serial.println(micros()-timestmp);};
-#endif
-
 }
-
 
 void screenClearBuffer() {
   memset(screenBuffer, 0, 2048);
 }
 
-
 void ICACHE_RAM_ATTR screenPixel(int16_t x, int16_t y) {
-  screenBuffer[(x + y*128)>>3] |=  (0x80 >> (x & 0x7));
+  screenBuffer[(y << 4) + (x >> 3)] |=  (0x80 >> (x & 0x7));
 }
 
-
 void screenLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1) {
+  // Быстрые пути для ровных линий
+  if (x0 == x1) {
+    int16_t start = y0 < y1 ? y0 : y1;
+    int16_t end = y0 < y1 ? y1 : y0;
+    for (int16_t y = start; y <= end; y++) screenPixel(x0, y);
+    return;
+  }
+  if (y0 == y1) {
+    int16_t start = x0 < x1 ? x0 : x1;
+    int16_t end = x0 < x1 ? x1 : x0;
+    for (int16_t x = start; x <= end; x++) screenPixel(x, y0);
+    return;
+  }
+
   static int32_t steep, inc, dx, dy, x, y, e; 
               
   steep = abs(y1 - y0) > abs(x1 - x0),
@@ -127,53 +126,23 @@ void screenLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1) {
 }
 
 
-
 void setup(){
-#ifdef SERIAL_DEBUG
-  Serial.begin(57600);
-  Serial.println();
-#endif
-  
+  #ifdef SERIAL_DEBUG
+  Serial.begin(115200);
+  #endif
   myESPboy.begin("ESPboy Vectrex");
-
-  /*
-    //Check OTA2
-  if (myESPboy.getKeys()&PAD_ACT || myESPboy.getKeys()&PAD_ESC) { 
-     terminalGUIobj = new ESPboyTerminalGUI(&myESPboy.tft, &myESPboy.mcp);
-     OTA2obj = new ESPboyOTA2(terminalGUIobj);
-  }
-  */
   
   screenBuffer = (uint8_t *)malloc(2048);
   memset (screenBuffer, 0 , 2048);
 
-#ifdef SERIAL_DEBUG
-  Serial.print(F("START  "));
-  Serial.println(ESP.getFreeHeap());
-#endif
-
   lineBuf1 = (uint16_t *)malloc (128*4*2);
   lineBuf2 = (uint16_t *)malloc (128*4*2);
-
-#ifdef SERIAL_DEBUG
-  Serial.print(F("Line buf alloc  "));
-  Serial.println(ESP.getFreeHeap());
-#endif
   
   ram = (unsigned char *)malloc (1024);
 
-#ifdef SERIAL_DEBUG
-  Serial.print(F("RAM alloc  "));
-  Serial.println(ESP.getFreeHeap());
-#endif
-
 #ifdef SOUND_ENABLE
-  soundBuffer = (uint8_t *)malloc (SOUND_SAMPLE+1);
-#endif
-
-#ifdef SERIAL_DEBUG
-  Serial.print(F("Sound buf alloc  "));
-  Serial.println(ESP.getFreeHeap());
+  // Выделяем память под кольцевой буфер
+  soundBuffer = (uint8_t *)malloc (SOUND_BUFFER_SIZE);
 #endif
 
 myESPboy.tft.setWindow(0, 0, 127, 127); 
@@ -199,6 +168,7 @@ void loop(){
      fileCnt=0;
      while (dir.next()){
        if(strstr(dir.fileName().c_str(),".vec") && dir.fileSize()<MAX_FILE_SIZE){
+        
 #ifdef SERIAL_DEBUG
          Serial.print(dir.fileName().c_str()); Serial.print("      "); Serial.println(dir.fileSize());
 #endif
@@ -212,15 +182,21 @@ void loop(){
      fileNamesList[fileCnt+1] = NULL;
      flagLoadedRom = 1;
      
-     uint8_t selectedFile = menuGUI.menuInit((const char **)fileNamesList, TFT_YELLOW, TFT_BLUE, TFT_BLUE);  
+     uint8_t selectedFile;
+     selectedFile = menuGUI.menuInit((const char **)fileNamesList, TFT_YELLOW, TFT_BLUE, TFT_BLUE);  
+     free(fileNamesBuf);
+     free(fileNamesList);
+     free(fileNum);
+     
      myESPboy.tft.fillScreen(TFT_BLACK);
      dir.rewind();
      while(fileNum[selectedFile]--) dir.next();
+
      allocatedRom = (uint8_t *)malloc(dir.fileSize());
      if (allocatedRom == NULL){
         flagLoadedRom = 0;
         myESPboy.tft.fillScreen(TFT_BLACK);
-        myESPboy.tft.drawString("Loading error", 24,50);
+        myESPboy.tft.drawString(F("Loading error"), 24,50);
         delay(3000);
         ESP.reset();
      }
@@ -229,16 +205,7 @@ void loop(){
        f.readBytes((char *)allocatedRom, dir.fileSize());
        f.close();}
 
-#ifdef SERIAL_DEBUG
-  Serial.print(F("ROM alloc  "));
-  Serial.println(ESP.getFreeHeap());
-#endif
-
      LittleFS.end();
-     free(fileNamesBuf);
-     free(fileNamesList);
-     free(fileNum);
-
    }
   }
 

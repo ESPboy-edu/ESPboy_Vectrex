@@ -1,10 +1,12 @@
+#pragma GCC optimize ("O2")
+
 #include <stdio.h>
 #include "e6809.h"
 
 #include <Arduino.h>
 
-
-/* code assumptions:
+/* code astatic  uint16_t read8
+ *  ssumptions:
  *  - it is assumed that an 'int' is at least 16 bits int16_t.
  *  - a 16-bit register has valid bits only in the lower 16 bits and an
  *    8-bit register has valid bits only in the lower 8 bits. the upper
@@ -69,16 +71,12 @@ static uint16_t *rptr_xyus[4] = {
 	&reg_s
 };
 
-/* user defined read and write functions */
-
-uint8_t (*e6809_read8) (uint16_t address);
-void (*e6809_write8) (uint16_t address, uint8_t data);
 
 /* obtain a particular condition code. returns 0 or 1. */
 
 static  uint16_t get_cc (uint16_t flag)
 {
-	return (reg_cc / flag) & 1;
+	return (reg_cc & flag) ? 1 : 0;
 }
 
 /* set a particular condition code to either 0 or 1.
@@ -173,19 +171,7 @@ static  void set_reg_d (uint16_t value)
  * while the upper bits are all zero.
  */
 
-static  uint16_t read8 (uint16_t address)
-{
-	return (*e6809_read8) (address & 0xffff);
-}
 
-/* write a byte ... only the lower 8-bits of the uint16_t data
- * is written. the upper bits are ignored.
- */
-
-static  void write8 (uint16_t address, uint16_t data)
-{
-	(*e6809_write8) (address & 0xffff, (uint8_t) data);
-}
 
 static  uint16_t read16 (uint16_t address)
 {
@@ -237,7 +223,7 @@ static  uint16_t pull16 (uint16_t *sp)
 
 /* read a byte from the address pointed to by the pc */
 
-static  uint16_t pc_read8 (void)
+static  uint16_t ICACHE_RAM_ATTR pc_read8 (void)
 {
 	uint16_t data;
 

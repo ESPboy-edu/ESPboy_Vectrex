@@ -11,23 +11,18 @@
 
  static int screenx;
  static int screeny;
- static int scl_factor;  
+ static int32_t inv_scl_factor; // Заменили scl_factor на множитель
  static int offx;
  static int offy; 
 
-extern uint8_t soundBuffer[SOUND_SAMPLE];
+// Изменился размер для кольцевого буфера
+extern uint8_t *soundBuffer;
 
 void osint_render(){
  static int v, x0, x1, y0, y1;
 
 #ifdef SOUND_ENABLE 
-
   if (soundOnFlag) e8910_callback();
-
-  #ifdef SERIAL_DEBUG 
-    //for(uint8_t i=0; i<50; i++){Serial.print(soundBuffer[i]); Serial.print("  ");}
-    //Serial.println();
-  #endif
 #endif
 
  if (vector_draw_cnt<=0){
@@ -42,22 +37,20 @@ void osint_render(){
    x1 = (vectors_draw[v].x1);
    y1 = (vectors_draw[v].y1);
 
-    x0 = offx + x0 / scl_factor;
-    y0 = offy + y0 / scl_factor;
+    // Fixed-point умножение вместо медленного деления
+    x0 = offx + ((x0 * inv_scl_factor) >> 16);
+    y0 = offy + ((y0 * inv_scl_factor) >> 16);
 
   if ((x0==x1) && (y0==y1)){
-    //PutPixel    
     screenPixel(x0, y0);
     }
   else{
-    x1 = offx + x1 / scl_factor;
-    y1 = offy + y1 / scl_factor;  
+    x1 = offx + ((x1 * inv_scl_factor) >> 16);
+    y1 = offy + ((y1 * inv_scl_factor) >> 16);  
     if ((x0==x1) && (y0==y1)){
-    //PutPixel    
       screenPixel(x0, y0);
     }
     else{
-     //DrawLine
      screenLine (x0, y0, x1, y1);
     }
    }
@@ -66,25 +59,20 @@ void osint_render(){
   screenDrawBuffer();
 }
 
-
 void resize(int width, int height)
 {
- #ifdef use_lib_vectortiny     
-  int sclx, scly;
- #else
-  long sclx, scly;
- #endif 
- 
+  long sclx, scly, scl_factor;
+  
 	screenx = width;
 	screeny = height;
  	sclx = ALG_MAX_X / width;
  	scly = ALG_MAX_Y / height;         
 	scl_factor = sclx > scly ? sclx : scly;
+  inv_scl_factor = (1 << 16) / scl_factor; // Предрасчет для fixed-point
+  
   offx = (screenx - ALG_MAX_X / scl_factor) / 2;
   offy = (screeny - ALG_MAX_Y / scl_factor) / 2;
 }
-
-
 
 bool checkKeys(){
   static unsigned char readKeys;
@@ -99,8 +87,6 @@ bool checkKeys(){
 
   if ((readKeys&PAD_RGT) && (readKeys&PAD_LFT))
     return 1;
-
-  if ((readKeys&PAD_RGT) && (readKeys&PAD_LFT))
 
   if (readKeys&PAD_LFT) snd_regs[14] &= ~0x01; 
   else snd_regs[14]|= 0x01; 
@@ -118,21 +104,14 @@ bool checkKeys(){
   else alg_jch0 = 0x80;
 
   if (readKeys&PAD_RIGHT) alg_jch0 = 0xff;
-  else{ 
-  //alg_jch0 = 0x80;
-  } 
-
+  
   if (readKeys&PAD_UP) alg_jch1 = 0xff;
   else alg_jch1 = 0x80;  
 
   if (readKeys&PAD_DOWN) alg_jch1 = 0x00;
-  else{
-  //alg_jch1 = 0x80;
-  }
 
   return 0;
 }
-
 
 void osint_emuloop(){
  vecx_reset();
@@ -153,8 +132,6 @@ void osint_emuloop(){
 #endif
 	}
 }
-
-
 
 void mainEmulator(){
   resize(128,128);
